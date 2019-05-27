@@ -13,8 +13,7 @@ We utilize the CCP-project repository. As such, please clone the project at http
 
 2) Replace source-urls to use old 17.10 compatible options:<br />
 `sudo sed -i -e 's/us.archive.ubuntu.com\|security.ubuntu.com/old-releases.ubuntu.com/g' /etc/apt/sources.list
-`
-
+`<br /><br />
 (verify all urls in /etc/apt/sources.list are now set to "old-releases")
 
 3) Verify connected to internet:<br />
@@ -34,8 +33,7 @@ We utilize the CCP-project repository. As such, please clone the project at http
 `cd eval-scripts && sudo ./ccp-system-setup.sh`
 
 8) Verify rust nightly setup, try:<br />
-`rustup update`
-
+`rustup update`<br /><br />
 If fails, do:<br />
 `curl https://sh.rustup.rs -sSf > rust.install.sh`<br />
 `chmod +x ./rust.install.sh`<br />
@@ -49,4 +47,3 @@ If fails, do:<br />
 https://github.com/ccp-project/eval-scripts.
 
 Further info here https://ccp-project.github.io/guide/setup/index.html
-
