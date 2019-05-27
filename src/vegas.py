@@ -2,8 +2,6 @@
 TCP Vegas implementation
 
 Ref: https://github.com/spotify/linux/blob/6eb782fc88d11b9f40f3d1d714531f22c57b39f9/net/ipv4/tcp_vegas.c
-
-This version is depracated
 '''
 
 import sys
@@ -16,16 +14,28 @@ parser.add_argument('--ipc', type=str, help='IPC communication type', default='n
 parser.add_argument('--debug', type=bool, help='Portus debugging', default=True)
 args = parser.parse_args()
 
+
+class CongSignals():
+    def __init__(self):
+        self.acked = 0
+        self.pkts_acked = 0
+        self.sacked = 0
+        self.loss = 0
+        self.timeout = False
+        self.rtt = 0
+        self.inflight = 0
+        self.now = 0
+
+
 class VegasFlow():
     # Constants
     INIT_CWND = 10
-    INIT_SSTHRESH = 32
+    INIT_SSTHRESH = 300
     ALPHA = 2
     BETA = 4
-    GAMMA = 1
-    CWND_MAX = 0xffffffff / 128
+    GAMMA = 4 # FIXME: tweak this value
+    CWND_MAX = 65535
     INIT_RTT = 0x7fffffff
-    TIMEOUT_MULT = 0
 
 
     def __init__(self, datapath, datapath_info):
@@ -36,126 +46,158 @@ class VegasFlow():
         self.cwnd = self.init_cwnd
 
         self.ssthresh = float(self.datapath_info.mss * VegasFlow.INIT_SSTHRESH)
-        self.slow_start = True
+        self.slow_start = False # FIXME: not in use currently
 
         self.cwnd_reduction = 0
 
         self.base_rtt = VegasFlow.INIT_RTT
         self.min_rtt = VegasFlow.INIT_RTT
-        self.next_seq = 0
-        self.last_reduce = 0
         self.rtt_count = 0
 
-        self.datapath.set_program("slow_start", [("Cwnd", self.cwnd)])
+        self.last_report = 0
+
+        self.outstanding = self.cwnd
+        self.loss = 0
+
+        self.datapath.set_program("default", [("Cwnd", self.cwnd)])
+
+
+    #
+    def get_fields(self, r):
+        fields = CongSignals()
+        fields.acked = r.acked
+        fields.pkts_acked = r.pkts_acked
+        fields.sacked = r.sacked
+        fields.loss = r.loss
+        fields.timeout = r.timeout
+        fields.rtt = r.rtt
+        fields.inflight = r.inflight
+        fields.now = r.now
+
+        return fields
 
 
     def on_report(self, r):
+        fields = self.get_fields(r)
+
+        print("loss=", r.loss, "timeout=", r.timeout, "acked=", r.acked, "ssthresh=", self.ssthresh, "cwnd=", self.cwnd)
+
         # Exit slow start
         if self.slow_start:
-        print("Exit slow start")
+            print("Exit slow start")
             self.slow_start = False
-            self.cwnd = r.inflight * self.datapath_info.mss
+            self.cwnd = fields.inflight * self.datapath_info.mss
             self.datapath.set_program("default", [("Cwnd", self.cwnd)])
 
-        if r.timeout:
-        print("Timeout")
+
+        if fields.timeout:
+            print("Timeout")
             self.ssthresh = max(self.ssthresh / 2, self.init_cwnd)
-            self.reset()
+            #self.reset()
             return
 
-        if r.rtt < 0:
+        if fields.rtt < 0:
             print("Invalid RTT")
             return
 
-        self.last_rtt = r.rtt
+        vrtt = fields.rtt + 1
+        self.base_rtt = min(r.base, vrtt)
+        self.min_rtt = min(r.minrtt, vrtt)
 
-        vrtt = r.rtt + 1
-        self.base_rtt = min(self.base_rtt, vrtt)
-        self.min_rtt = min(self.min_rtt, vrtt)
-        self.rtt_count += 1
+        self.loss += fields.loss
 
-        acked = self.ss_increase(r.acked)
+        self.rtt_count += fields.pkts_acked
+        print("rtt_count=", self.rtt_count)
 
-        print("expected=", self.next_seq, ", acked=", acked, ", r.acked=", r.acked)
+        self.outstanding -= r.acked
 
-        if acked >= self.next_seq:
-            print("Vegas phase")
+        if self.outstanding <= 0:
+        #if time.time() - self.last_report > fields.rtt / 1000000.0:
+        #if (fields.now - self.last_report) > fields.rtt / 100000.0: # convert RTT us to jiffies
 
-            self.next_seq = acked
-           
+            self.outstanding = self.cwnd
+
+            #self.last_report = fields.now
+
             if self.rtt_count <= 2:
-                print("Insufficient RTT measurements, reno cong")
+                print("Reno")
+                self.reno_cong_avoid(fields)
 
-                self.reno_cong_avoid(r, acked)
+                self.rtt_count = 0
+                self.min_rtt = VegasFlow.INIT_RTT
+                self.loss = 0
                 return
 
-            target_cwnd = self.cwnd * self.base_rtt / self.min_rtt
-            diff = self.cwnd * (self.min_rtt - self.base_rtt) / self.base_rtt
+            cwnd = float(self.cwnd) / self.datapath_info.mss
+
+            target_cwnd = cwnd * self.base_rtt / self.min_rtt
+            diff = cwnd * (self.min_rtt - self.base_rtt) / self.base_rtt
 
             if diff > VegasFlow.GAMMA and self.cwnd <= self.ssthresh:
-                print("Gamma cond")
+                print("Gamma", diff)
 
-                self.cwnd = min(self.cwnd, target_cwnd + self.datapath_info.mss)
+                self.cwnd = min(self.cwnd, target_cwnd * self.datapath_info.mss + self.datapath_info.mss)
                 self.ssthresh = min(self.ssthresh, self.cwnd - self.datapath_info.mss)
             elif self.cwnd <= self.ssthresh:
-                print("Switch to slow start")
-                self.ss_begin()
+                print("Slow start")
+                #self.ss_begin() # try with return slow start fold function after RTT
+
+                # FIXME: this is horrible
+                pkts = fields.pkts_acked
+                while self.cwnd <= self.ssthresh and pkts > 0:
+                    self.cwnd += self.datapath_info.mss
+                    pkts -= 1
             else:
                 if diff > VegasFlow.BETA:
-                    print("Beta cond")
+                    print("Beta")
                     self.cwnd -= self.datapath_info.mss
                     self.ssthresh = min(self.ssthresh, self.cwnd - self.datapath_info.mss)
                 elif diff < VegasFlow.ALPHA:
-                    print("Alpha cond")
+                    print("Alpha")
                     self.cwnd += self.datapath_info.mss
 
             self.cwnd = max(self.cwnd, 2 * self.datapath_info.mss)
             self.cwnd = min(self.cwnd, VegasFlow.CWND_MAX * self.datapath_info.mss)
            
-            #self.ssthresh = ?
+            self.ssthresh = max(self.ssthresh, self.cwnd / 2)
             self.rtt_count = 0
-            self.min_rtt = VegasFlow.INIT_RTT
+            self.loss = 0
+            #self.min_rtt = VegasFlow.INIT_RTT
 
         elif self.cwnd <= self.ssthresh:
-            print("Switch to slow start")
-            self.ss_begin()
+            print("Slow start")
+            #self.ss_begin() # try with return slow start fold function after RTT
+            
+            # FIXME: this is horrible
+            pkts = fields.pkts_acked
+            while self.cwnd <= self.ssthresh and pkts > 0:
+                self.cwnd += self.datapath_info.mss
+                pkts -= 1
+
+        print("cwnd=", self.cwnd)
 
         self.datapath.update_field("Cwnd", int(self.cwnd))
 
 
-    def reno_cong_avoid(self, r, acked):
-        # AI
-        self.cwnd += (self.datapath_info.mss) * float(acked / self.cwnd)
-        self.maybe_reduce(r, acked)
-        self.datapath.update_field("Cwnd", int(self.cwnd))
-
-
-    def maybe_reduce(self, r, acked):
-        # check if loss happened in last rtt
-
-        if r.loss > 0 or r.sacked > 0:
-            if VegasFlow.TIMEOUT_MULT > 0 and \
-                time.time() - self.last_reduce > self.last_rtt * VegasFlow.TIMEOUT_MULT:
-
-                self.cwnd_reduction = 0
-
-            if r.loss and self.cwnd_reduction == 0 \
-                or (r.acked > 0 and self.cwnd == self.ssthresh):
-
-                # MD
-                self.cwnd = min(self.cwnd / 2, self.init_cwnd)
-               
-                self.last_reduce = time.time()
-
-                self.ssthresh = self.cwnd
-                self.datapath.update_field("Cwnd", int(self.cwnd))
-
-            self.cwnd_reduction += r.loss + r.sacked
-
-        elif acked < self.cwnd_reduction:
-            self.cwnd_reduction -= int(acked / self.datapath_info.mss)
+    def reno_cong_avoid(self, r):
+        if r.loss > 0:
+            print("Multiplicative decrease")
+            self.cwnd = max(self.cwnd / 2, self.init_cwnd)
+            self.ssthresh = self.cwnd
+        elif self.cwnd <= self.ssthresh:
+            # FIXME: this is horrible
+            pkts = fields.pkts_acked
+            while self.cwnd <= self.ssthresh and pkts > 0:
+                self.cwnd += self.datapath_info.mss
+                pkts -= 1
+            
         else:
-            self.cwnd_reduction = 0
+            print("Additive increase")
+            self.cwnd += (self.datapath_info.mss * (r.acked / float(self.cwnd)))
+
+        print("cwnd=", self.cwnd)
+
+        self.datapath.update_field("Cwnd", int(self.cwnd))
 
 
     def ss_begin(self):
@@ -163,69 +205,72 @@ class VegasFlow():
         self.datapath.set_program("slow_start", [("Cwnd", self.cwnd)])
 
 
-    def ss_increase(self, acked):
-        if self.cwnd < self.ssthresh:
-            if self.cwnd + acked > self.ssthresh:
-                self.cwnd = self.ssthresh
-                return acked - (self.ssthresh - self.cwnd)
-
-            # Note: no infrequent update correction
-            self.cwnd += acked
-
-        return acked
-
-
     def reset(self):
         self.cwnd = self.init_cwnd
         self.ss_begin()
-        self.curr_cwnd_reduction = 0
 
 
 class Vegas(portus.AlgBase):
     def datapath_programs(self):
         return {
                 "default" : """\
-                (def (Report
-                    (volatile acked 0)
-                    (volatile sacked 0)
-                    (volatile loss 0)
-                    (volatile timeout false)
-                    (volatile rtt 0)
-                    (volatile inflight 0)
-                ))
+                (def
+                    (Report
+                        (volatile acked 0)
+                        (volatile pkts_acked 0)
+                        (volatile sacked 0)
+                        (volatile loss 0)
+                        (volatile timeout false)
+                        (volatile rtt 0)
+                        (volatile inflight 0)
+                        (volatile now 0)
+                        (volatile minrtt +infinity)
+                        (volatile base 0)
+                    )
+                    (basertt +infinity)
+                )
                 (when true
                     (:= Report.inflight Flow.packets_in_flight)
                     (:= Report.rtt Flow.rtt_sample_us)
+                    (:= Report.minrtt (min Report.minrtt Flow.rtt_sample_us))
+                    (:= basertt (min basertt Flow.rtt_sample_us))
                     (:= Report.acked (+ Report.acked Ack.bytes_acked))
+                    (:= Report.pkts_acked (+ Report.pkts_acked Ack.packets_acked))
                     (:= Report.sacked (+ Report.sacked Ack.packets_misordered))
                     (:= Report.loss Ack.lost_pkts_sample)
                     (:= Report.timeout Flow.was_timeout)
+                    (:= Report.now Ack.now)
+                    (:= Report.base basertt)
                     (fallthrough)
                 )
                 (when (|| Report.timeout (> Report.loss 0))
-                    (report)
                     (:= Micros 0)
+                    (report)
                 )
                 (when (> Micros Flow.rtt_sample_us)
-                    (report)
                     (:= Micros 0)
+                    (report)
                 )
             """, "slow_start" : """\
                 (def (Report
                     (volatile acked 0)
+                    (volatile pkts_acked 0)
                     (volatile sacked 0)
                     (volatile loss 0)
                     (volatile timeout false)
                     (volatile rtt 0)
                     (volatile inflight 0)
+                    (volatile now 0)
                 ))
                 (when true
                     (:= Report.acked (+ Report.acked Ack.bytes_acked))
+                    (:= Report.pkts_acked (+ Report.pkts_acked Ack.packets_acked))
                     (:= Report.sacked (+ Report.sacked Ack.packets_misordered))
                     (:= Report.loss Ack.lost_pkts_sample)
                     (:= Report.timeout Flow.was_timeout)
                     (:= Report.rtt Flow.rtt_sample_us)
                     (:= Report.inflight Flow.packets_in_flight)
+                    (:= Report.now Ack.now)
                     (:= Cwnd (+ Cwnd Ack.bytes_acked))
                     (fallthrough)
                 )
