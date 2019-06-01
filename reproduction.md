@@ -4,6 +4,11 @@
 TODO: Pending updates ...
 
 
+FIXME:
+> apt-get install sysstat for sar #ref https://www.cyberciti.biz/tips/how-do-i-find-out-linux-cpu-utilization.html
+> pip install plotly #ref https://plot.ly/python/getting-started/
+
+
 1) To add a new congestion control algorithm on Linux do:<br />
 `sudo -i`<br />
 `modprobe tcp_alg` for example `tcp_cubic`<br /><br />
@@ -12,7 +17,7 @@ Verify it was added via:<br />
 To set as default do:<br />
 `echo alg > /proc/sys/net/ipv4/tcp_congestion_control`
 
-2) To run the fidelity tests do (modufy args as desired):<br />
+2) To run the fidelity tests do (modify args as desired):<br />
 `python3 ./scripts/run-fidelity-exp.py --outdir fidelity --duration 15 --alg reno --scenario fixed --ipcs netlink --kernel --iters 1`<br /><br />
 Note: we have added our modified version to this repo that kills python aimd/reno/vegas algorithm processes.
 

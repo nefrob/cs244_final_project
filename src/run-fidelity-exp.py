@@ -32,6 +32,7 @@ from setup import reset
 from start_ccp import start as ccp_start
 from start_ccp import algs
 import sh
+import subprocess
 
 def run_exps(exps, dest, iters, dur, scenarios, delay, rate, qsize_pkts):
     print("Running Experiments")
@@ -56,6 +57,9 @@ def run_exps(exps, dest, iters, dur, scenarios, delay, rate, qsize_pkts):
 
                 sh.run("sudo dd if=/dev/null of=/proc/net/tcpprobe 2> /dev/null", shell=True)
                 sh.run('sudo dd if=/proc/net/tcpprobe of="./{}/{}-tmp.log" 2> /dev/null &'.format(dest, outprefix), shell=True)
+
+                type = 'ccp' if sockopt == 'ccp' else 'kernel'
+                cpu_util_proc = subprocess.Popen("sar -u 1 {} > ./util/{}_iter{}.cpu_data".format(dur, type, i), shell=True)
 
                 if trace == 'fixed':
                     sh.run('mm-delay {4} \
