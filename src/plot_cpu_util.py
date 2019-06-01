@@ -133,7 +133,7 @@ def plot_usage(user_data, kernel_data, outdir):
             x = time,
             y = user_data[i],
             mode = 'lines+markers',
-            name = 'User, ' + flow_labels[i]
+            name = 'CCP, ' + flow_labels[i]
         )
 
         plot_data.append(user)
@@ -151,8 +151,8 @@ if __name__ == '__main__':
     data, avg = get_data(args.indir)
     
     n = len(avg) / 2 # number of files for each ccp/kernel modes
-    plot_avg(avg[n:], avg[:n], args.outdir)
-    plot_usage(data[n:, :, 2], data[:n, :, 2], args.outdir)
+    plot_avg(avg[:n], avg[n:], args.outdir)
+    plot_usage(data[:n, :, 2], data[n:, :, 2], args.outdir)
 
 
 
