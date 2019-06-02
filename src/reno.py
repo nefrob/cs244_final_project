@@ -1,7 +1,5 @@
 '''
 TCP Reno implementation
-
-In progress ...
 '''
 
 import sys
@@ -15,7 +13,7 @@ parser.add_argument('--debug', type=bool, help='Portus debugging', default=True)
 args = parser.parse_args()
 
 
-# Signals class
+#
 class CongSignals():
     def __init__(self):
         self.acked = 0
@@ -90,10 +88,6 @@ class RenoFlow():
         #if fields.now - self.last_report > 3 * fields.rtt and fields.loss > 0:
         #    self.outstanding = 0
 
-        # FIXME:
-        if fields.acked > 0:
-            self.outstanding = max(0, self.outstanding - fields.pkts_acked)
-
         self.reno_cong_avoid(fields)
 
     # Perform congestion avoidance window updates
@@ -101,7 +95,8 @@ class RenoFlow():
         #print("loss=", r.loss, "timeout=", r.timeout, "acked=", r.acked, "ssthresh=", self.ssthresh, "cwnd=", self.cwnd, "out=", self.outstanding)
 
         # Multiplicative decrease
-        if r.loss > 0 and self.outstanding == 0:
+        if r.loss > 0 and (self.outstanding == 0 or (r.acked > 0 and self.cwnd == self.ssthresh)):
+            #print("md")
             self.cwnd = max(self.cwnd / 2, self.init_cwnd)
             self.ssthresh = self.cwnd
 
@@ -110,7 +105,12 @@ class RenoFlow():
             self.datapath.update_field("Cwnd", int(self.cwnd))
             return
 
+        # Update outstanding bytes
+        if r.loss > 0:
+            self.outstanding = max(0, self.outstanding - r.pkts_acked)
+
         # Additive increase
+        #print("ai")
         self.cwnd += (self.datapath_info.mss * (r.acked / float(self.cwnd)))
 
         self.datapath.update_field("Cwnd", int(self.cwnd))
@@ -189,16 +189,16 @@ class Reno(portus.AlgBase):
                 )
             """, "slow_start_thresh" : """\
                 (def (Report
-                        (volatile acked 0)
-                        (volatile pkts_acked 0)
-                        (volatile sacked 0)
-                        (volatile loss 0)
-                        (volatile timeout false)
-                        (volatile rtt 0)
-                        (volatile inflight 0)
-                        (volatile now 0)
-                    )
-                    (ssthresh 0)
+                    (volatile acked 0)
+                    (volatile pkts_acked 0)
+                    (volatile sacked 0)
+                    (volatile loss 0)
+                    (volatile timeout false)
+                    (volatile rtt 0)
+                    (volatile inflight 0)
+                    (volatile now 0)
+                )
+                (ssthresh 0)
                 )
                 (when true
                     (:= Report.acked (+ Report.acked Ack.bytes_acked))
