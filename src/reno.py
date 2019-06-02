@@ -111,7 +111,6 @@ class RenoFlow():
             return
 
         # Additive increase
-        self.outstanding = max(0, self.outstanding - r.pkts_acked)
         self.cwnd += (self.datapath_info.mss * (r.acked / float(self.cwnd)))
 
         self.datapath.update_field("Cwnd", int(self.cwnd))

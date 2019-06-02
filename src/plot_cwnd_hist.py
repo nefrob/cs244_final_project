@@ -50,6 +50,11 @@ def parse_file(fname, dt):
         v = avg_cwnds_data['kernel'][key]
         avg_cwnds['kernel'].append(v[0] / v[1])
     
+    # Truncate if one longer than other
+    N = min(len(avg_cwnds['ccp']), len(avg_cwnds['kernel']))
+    avg_cwnds['ccp'] = avg_cwnds['ccp'][:N]
+    avg_cwnds['kernel'] = avg_cwnds['kernel'][:N]
+
     return avg_cwnds, all_cwnds
 
 
@@ -63,7 +68,7 @@ def get_data(indir, dt, subsample):
 
 #
 def plot(avg_cwnds, all_cwnds, dt, outdir):
-    N = min(len(avg_cwnds['ccp']), len(avg_cwnds['kernel']))
+    N = len(avg_cwnds['ccp'])
     time = np.linspace(0, N * dt, N)
 
     avg_user = go.Scatter(
@@ -80,12 +85,19 @@ def plot(avg_cwnds, all_cwnds, dt, outdir):
         name = 'Kernel'
     )
 
+    avg_diff = go.Scatter(
+        x = time,
+        y = np.abs(np.array(avg_cwnds['kernel']) - np.array(avg_cwnds['ccp'])),
+        mode = 'lines',
+        name = 'Difference'
+    )
+
     layout = dict(title = 'Average cwnd per ' + str(dt) + 's bucket',
         xaxis = dict(title = 'Time (s)'),
         yaxis = dict(title = 'Cwnd size'),
     )
 
-    fig = dict(data=[avg_user, avg_kernel], layout=layout)
+    fig = dict(data=[avg_user, avg_kernel, avg_diff], layout=layout)
     plotly.offline.plot(fig, filename=outdir + '/avg_cwnd_plot.html')
 
     total_user = go.Histogram(

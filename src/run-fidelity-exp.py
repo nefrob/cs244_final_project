@@ -16,6 +16,7 @@ parser.add_argument('--plot-only', dest='plot_only', action='store_true', defaul
 parser.add_argument('--delay', dest='linkdelay', type=int, default='10')
 parser.add_argument('--rate', dest='fixedrate', type=int, default='96')
 parser.add_argument('--qsize', dest='fixedqsize', type=int, default='160')
+parser.add_argument('--nflows', dest='nflows', type=int, default=1)
 
 scenarios = ('fixed', 'cell', 'drop')
 kernel_algs = ['reno', 'cubic', 'bbr', 'vegas']
@@ -32,9 +33,8 @@ from setup import reset
 from start_ccp import start as ccp_start
 from start_ccp import algs
 import sh
-import subprocess
 
-def run_exps(exps, dest, iters, dur, scenarios, delay, rate, qsize_pkts):
+def run_exps(exps, dest, iters, dur, scenarios, delay, rate, qsize_pkts, nflows):
     print("Running Experiments")
     print("=========================")
     for alg, sockopt, name in exps:
@@ -58,9 +58,6 @@ def run_exps(exps, dest, iters, dur, scenarios, delay, rate, qsize_pkts):
                 sh.run("sudo dd if=/dev/null of=/proc/net/tcpprobe 2> /dev/null", shell=True)
                 sh.run('sudo dd if=/proc/net/tcpprobe of="./{}/{}-tmp.log" 2> /dev/null &'.format(dest, outprefix), shell=True)
 
-                type = 'ccp' if sockopt == 'ccp' else 'kernel'
-                cpu_util_proc = subprocess.Popen("sar -u 1 {} > ./util/{}_iter{}.cpu_data".format(dur, type, i), shell=True)
-
                 if trace == 'fixed':
                     sh.run('mm-delay {4} \
                             mm-link ./mm-traces/bw{5}.mahi ./mm-traces/bw{5}.mahi \
@@ -69,7 +66,7 @@ def run_exps(exps, dest, iters, dur, scenarios, delay, rate, qsize_pkts):
                               --uplink-queue-args="packets={6}" \
                               --downlink-queue-args="packets={6}" \
                               --uplink-log="./{0}/{1}-mahimahi.log" \
-                            -- ./scripts/run-iperf.sh {0} {1} {2} {3}'.format(dest, outprefix, sockopt, dur, delay, rate, qsize_pkts), shell=True)
+                            -- ./scripts/run-iperf.sh {0} {1} {2} {3} {7}'.format(dest, outprefix, sockopt, dur, delay, rate, qsize_pkts, nflows), shell=True)
                 elif trace == 'cell':
                     sh.run('mm-delay 10 \
                             mm-link ./mm-traces/Verizon-LTE-short.up ./mm-traces/Verizon-LTE-short.down \
@@ -78,13 +75,13 @@ def run_exps(exps, dest, iters, dur, scenarios, delay, rate, qsize_pkts):
                               --uplink-queue-args="packets=100" \
                               --downlink-queue-args="packets=100" \
                               --uplink-log="./{0}/{1}-mahimahi.log" \
-                            -- ./scripts/run-iperf.sh {0} {1} {2} {3}'.format(dest, outprefix, sockopt, dur), shell=True)
+                            -- ./scripts/run-iperf.sh {0} {1} {2} {3} {4}'.format(dest, outprefix, sockopt, dur, nflows), shell=True)
                 elif trace == 'drop':
                     sh.run('mm-delay {4} \
                             mm-link ./mm-traces/bw{5}.mahi ./mm-traces/bw{5}.mahi \
                               --uplink-log="./{0}/{1}-mahimahi.log" \
                             mm-loss uplink 0.0001 \
-                            -- ./scripts/run-iperf.sh {0} {1} {2} {3}'.format(dest, outprefix, sockopt, dur, delay, rate), shell=True)
+                            -- ./scripts/run-iperf.sh {0} {1} {2} {3} {6}'.format(dest, outprefix, sockopt, dur, delay, rate, nflows), shell=True)
                 else:
                     print('unknown', trace)
                     sys.exit(1)
@@ -182,7 +179,7 @@ if __name__ == '__main__':
 
         if not parsed.plot_only:
             setup(dest)
-            run_exps(exps, dest, iters, dur, scns, parsed.linkdelay, parsed.fixedrate, parsed.fixedqsize)
+            run_exps(exps, dest, iters, dur, scns, parsed.linkdelay, parsed.fixedrate, parsed.fixedqsize, parsed.nflows)
 
     # ccp experiments
     for i in wanted_ipcs:
@@ -193,7 +190,7 @@ if __name__ == '__main__':
 
         if not parsed.plot_only:
             setup(dest, ipc=i)
-            run_exps(exps, dest, iters, dur, scns, parsed.linkdelay, parsed.fixedrate, parsed.fixedqsize)
+            run_exps(exps, dest, iters, dur, scns, parsed.linkdelay, parsed.fixedrate, parsed.fixedqsize, parsed.nflows)
 
     print()
     plot(dest, wanted_algs, scns)
