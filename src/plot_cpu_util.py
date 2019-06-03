@@ -21,10 +21,10 @@ def parse_file(fname):
             usage = map(float, line.split())
             
             # [user, system, all - idle]
-            vals = np.array([usage[0], usage[2], sum(usage) - usage[3]])         
+            vals = np.array([usage[0], usage[2], sum(usage) - usage[3]])
             data.append(vals)
 
-    return data, sum(data) / float(len(data))
+    return np.array(data), sum(data) / float(len(data))
 
 
 # 
@@ -39,7 +39,7 @@ def get_data(indir):
             all_data.append(data)
             all_avg.append(avg)
 
-    return np.array(all_data), np.array(all_avg)
+    return all_data, np.array(all_avg)
 
 
 #
@@ -137,23 +137,23 @@ def plot_usage(user_data1, user_data2, kernel_data, outdir):
     for i in range(N):
         kernel = go.Scatter(
             x = time,
-            y = kernel_data[i],
+            y = [kernel_data[i][j][2] for j in range(len(kernel_data[i]))],
             mode = 'lines+markers',
             name = 'Kernel, ' + flow_labels[i]
         )
 
         user1 = go.Scatter(
             x = time,
-            y = user_data1[i],
+            y = [user_data1[i][j][2] for j in range(len(user_data1[i]))],
             mode = 'lines+markers',
-            name = 'User (per-10ms), ' + flow_labels[i]
+            name = 'CCP (per-10ms), ' + flow_labels[i]
         )
 
         user2 = go.Scatter(
             x = time,
-            y = user_data2[i],
+            y = [user_data2[i][j][2] for j in range(len(user_data2[i]))],
             mode = 'lines+markers',
-            name = 'User (per-ack), ' + flow_labels[i]
+            name = 'CCP (per-ack), ' + flow_labels[i]
         )
 
         plot_data.append(kernel)
@@ -171,9 +171,9 @@ def plot_usage(user_data1, user_data2, kernel_data, outdir):
 if __name__ == '__main__':
     args = parser.parse_args()
     data, avg = get_data(args.indir)
-    
+
     n = len(avg) / 3 # number of files for each ccp/kernel modes
     plot_avg(avg[:n], avg[n:2*n], avg[2*n:], args.outdir)
-    plot_usage(data[:n, :, 2], data[n:2*n, :, 2], data[2*n:, :, 2], args.outdir)
+    plot_usage(data[:n], data[n:2*n], data[2*n:], args.outdir)
 
 
