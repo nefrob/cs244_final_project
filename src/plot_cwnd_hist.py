@@ -30,7 +30,7 @@ def parse_file(fname, dt):
             cwnd_sample = float(tokens[-1])
 
             all_cwnds[key].append(cwnd_sample)
-
+            
             # Precision should match dt sig figs
             interval = round(round(time / dt) * dt, 2)
 
@@ -52,9 +52,10 @@ def parse_file(fname, dt):
     
     # Truncate if one longer than other
     N = min(len(avg_cwnds['ccp']), len(avg_cwnds['kernel']))
+
     avg_cwnds['ccp'] = avg_cwnds['ccp'][:N]
     avg_cwnds['kernel'] = avg_cwnds['kernel'][:N]
-
+    
     return avg_cwnds, all_cwnds
 
 
@@ -102,19 +103,21 @@ def plot(avg_cwnds, all_cwnds, dt, outdir):
 
     total_user = go.Histogram(
         x = all_cwnds['ccp'],
+        histnorm = 'percent',
         opacity = 0.75,
         name = 'CCP'
     )
 
     total_kernel = go.Histogram(
         x = all_cwnds['kernel'],
+        histnorm = 'percent',
         opacity = 0.75,
         name = 'Kernel'
     )
 
     layout = dict(title = 'Cwnd histogram',
-        xaxis = dict(title = 'Cwnd size'),
-        yaxis = dict(title = 'Count'),
+        xaxis = dict(title = 'Cwnd size (in MSS)'),
+        yaxis = dict(title = 'Count (%)'),
         barmode = 'overlay'
     )
 

@@ -39,10 +39,10 @@ class RenoFlow():
         self.datapath = datapath
         self.datapath_info = datapath_info
 
-        self.init_cwnd = float(self.datapath_info.mss * VegasFlow.INIT_CWND)
+        self.init_cwnd = float(self.datapath_info.mss * RenoFlow.INIT_CWND)
         self.cwnd = self.init_cwnd
 
-        self.ssthresh = float(self.datapath_info.mss * VegasFlow.INIT_SSTHRESH)
+        self.ssthresh = float(self.datapath_info.mss * RenoFlow.INIT_SSTHRESH)
         self.slow_start = True
 
         self.last_report = 0
